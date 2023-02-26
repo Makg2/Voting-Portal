@@ -3,66 +3,97 @@ pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-//@title EVM - Electornic Voting MAchine
-//@author Aradhya Mittal
+/*
+* @title EVM - Electronic Voting Machine
+* @author Aradhya Mittal
+* @dev This contract implements an electronic voting machine on the Ethereum network, where users can 
+* cast votes for candidates by sending transactions to the contract.
+ */
 contract voterPortal is ERC721, Ownable{
 
-    using ECDSA for bytes32;
-
-    uint public startTime;
-    uint public endTime;
-    uint public candidateLength;
-    string[] public candidateList;// List of candidates taking part in elections
-    mapping (uint => bool) public voted; // TOkenId => 0/1
-    mapping (string => uint) public votes; // CandidateId => vote count
+    uint public startTime; // The timestamp when the voting period starts
+    uint public endTime; // The timestamp when the voting period ends
+    uint public candidateLength; // The total number of candidates registered
+    string[] public candidateList; // List of candidates taking part in elections
+    mapping (uint => bool) public voted; // A mapping of token ID to boolean to keep track of whether a token has been used to vote
+    mapping (string => uint) public votes; // A mapping of candidate ID to vote count
 
     event CandidateReset(string Id);
     event CandidateRegistered(string Id);
 
+    /*
+    * @dev Initializes the contract with the given name, symbol and the owner address.
+    * @param name The name of the ERC721 token.
+    * @param symbol The symbol of the ERC721 token.
+    * @param _a The address of the contract owner.
+    */
     constructor(string memory name, string memory symbol, address _a) ERC721(name, symbol){
         transferOwnership(_a);
     }
 
+    /*
+    * @dev Modifier to check if the voting period has started.
+    */
     modifier isStarted{
         require(block.timestamp < endTime, "Election Ended");
         require( block.timestamp > startTime, "Election not Started");
         _;
     }
 
-    // @notice Sets the duration of election
+    /*
+    * @dev Sets the duration of the voting period.
+    * @param durationInHours The duration of the voting period in hours.
+    */
     function setTime(uint durationInHours) external onlyOwner{
         uint durationInSeconds = durationInHours * 3600;
         startTime = block.timestamp;
         endTime = startTime + durationInSeconds;
     }
 
-    //@notice Converts VoterId keccak256 hash to uint256
+    /*
+    * @dev Converts the given voter ID string to a unique token ID by computing its keccak256 hash.
+    * @param voterId The string voter ID.
+    * @return tId The unique token ID.
+    */
     function getTokenId(string memory voterId) external pure returns(uint tId){
         tId = uint(keccak256(abi.encodePacked(voterId)));
     }
 
-    //@notice mints voting tokens for enabling users to give votes
-    function mint(address a, uint tokenId) external onlyOwner{
-        _mint(a, tokenId);
+    /*
+    * @dev Mints new voting tokens to the given address.
+    * @param voter The address of the user to whom new voting tokens will be minted.
+    * @param tokenId The unique token ID to be minted.
+    */
+    function mint(address voter, uint tokenId) external onlyOwner{
+        _mint(voter, tokenId);
     }
 
-    //@dev Just in case some tokens are needed to be burnt
+    /*
+    * @dev Burns the given voting token.
+    * @param tokenId The unique token ID to be burned.
+    */
     function burn(uint tokenId) external onlyOwner{
         _burn(tokenId);
     }
 
-    //@notice Checks if the candidate is registered or not
-    function _checkCandidate(string memory s) internal view returns (bool can){
+    /*
+    * @dev Checks if the candidate with the given ID is registered or not.
+    * @param candidateId The ID of the candidate to check.
+    * @return can A boolean value indicating whether the candidate is registered or not.
+    */
+    function _checkCandidate(string memory candidateId) internal view returns (bool can){
         for(uint i;i<candidateLength && !can;i++){
-            if(keccak256(abi.encodePacked(candidateList[i])) == keccak256(abi.encodePacked(s))){
+            if(keccak256(abi.encodePacked(candidateList[i])) == keccak256(abi.encodePacked(candidateId))){
                 can = true;                
             }
         }
     }
 
-    //@notice Registers candidates by adding the string to array
+    /*
+    * @notice Registers a candidate by adding their ID to the array
+    * @param Id The ID of the candidate to register
+    */
     function candidateRegister(string memory Id) external onlyOwner{
         require(!_checkCandidate(Id), "Already Registered");
         candidateList.push(Id);
@@ -70,9 +101,11 @@ contract voterPortal is ERC721, Ownable{
         emit CandidateRegistered(Id);
     }
 
-    //@notice removes candidates from the array
+    /*
+    * @notice Removes candidates from the array
+    * @param Id The ID of the candidate to be removed
+    */
     function candidateReset(string memory Id) external onlyOwner{
-        // require(_checkCandidate(Id), "Not Registered");
         uint l = candidateLength;
         for(uint8 i;i<l;++i){
             if(keccak256(abi.encodePacked(candidateList[i])) == keccak256(abi.encodePacked(Id))){
@@ -85,7 +118,12 @@ contract voterPortal is ERC721, Ownable{
         emit CandidateReset(Id);
     }
 
-    //@notice Votes are added here
+    /*
+    * @notice Adds a vote to the specified candidate using the provided token ID and signature
+    * @param tokenId The token ID of the voter
+    * @param candidateId The ID of the candidate to vote for
+    * @param sig The signature of the message to verify the voter's identity
+    */
     function vote(uint tokenId, string memory candidateId, bytes memory sig) external onlyOwner isStarted{
         require(!voted[tokenId], "Already voted");
         require(_checkCandidate(candidateId), "Invalid Candidate");
@@ -100,23 +138,41 @@ contract voterPortal is ERC721, Ownable{
         votes[candidateId]++;
     }
 
-    //@return Hashes and returns tokenId and CandidateId hash
+    /*
+    * @notice Hashes and returns the hash of the token ID and candidate ID
+    * @param tokenId The token ID of the voter
+    * @param candidateId The ID of the candidate to vote for
+    * @return The hash of the token ID and candidate ID
+    */
     function getMessageHash(uint tokenId, string memory candidateId) public pure returns(bytes32 hash){
         hash = keccak256(abi.encodePacked(tokenId, candidateId));
     }
 
-    //@dev Eth Signed message is returned
+    /*
+    * @dev Returns the Eth Signed message of the given hash
+    * @param hash The hash to sign
+    * @return The Eth Signed message of the hash
+    */
     function _getEthSignedHash(bytes32 hash) internal pure returns (bytes32 signedHash){
         signedHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", hash));
     }
 
-    //@return It returns the signer of the hash
-    function _recover(bytes32 ethsignedHash, bytes memory signature) internal pure returns(address voter){
+    /*
+    * @notice Recovers the signer of the given Eth Signed message using the provided signature
+    * @param ethsignedHash The Eth Signed message to use for recovery
+    * @param signature The signature to recover the signer from
+    * @return The address of the recovered signer
+    */
+        function _recover(bytes32 ethsignedHash, bytes memory signature) internal pure returns(address voter){
         (bytes32 r, bytes32 s, uint8 v) = _split(signature);
         voter = ecrecover(ethsignedHash, v, r, s);
     }
 
-    //@dev Helper function for splitting the signature into r,s,v
+    /*
+    * @dev Helper function for splitting the signature into r, s, and v components
+    * @param sig The signature to split
+    * @return The r, s, and v components of the signature
+    */
     function _split(bytes memory sig) internal pure returns (bytes32 r, bytes32 s, uint8 v){
         require(sig.length == 65, "Invalid Sign");
         assembly{
